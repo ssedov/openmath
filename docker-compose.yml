@@ -17,6 +17,9 @@ services:
     environment:
       MONGO_USER: ${MONGO_USER}
       MONGO_PASS: ${MONGO_PASS}
+      UPLOAD_DIR: ${UPLOAD_DIR}
+    volumes:
+      - ./uploads:${UPLOAD_DIR}
 
   nginx:
     build: deploy/nginx
