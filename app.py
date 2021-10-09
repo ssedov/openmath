@@ -122,6 +122,37 @@ def opts(test_id):
     return resp
 
 
+@app.route('/api/sumbission/<string:sid>')
+def fetch_submission(sid):
+    resp = make_response()
+    resp.content_type = 'application/json'
+    resp.data = json.dumps(mongo()['openmath']['submissions'].find_one({'_id': ObjectId(sid)}, {'_id': 0}))
+    return resp
+
+
+def process_submission(submission):
+    files = []
+    for f in submission.get('files', []):
+        files.append(str(f))
+    submission['files'] = files
+    submission['ts'] = submission['ts'].strftime('%d.%m.%Y %H:%M:%S')
+    return submission
+
+
+@app.route('/api/submissions/<string:tid>')
+def fetch_submissions_by_test(tid):
+    cursor = mongo()['openmath']['submissions'].find({'test_id': tid}, {'_id': 0})
+    submissions = [s for s in cursor]
+    submissions.sort(key=lambda x: x.get('ts'))
+    submissions = [process_submission(s) for s in submissions]
+    resp = make_response()
+    resp.content_type = 'application/json'
+    for submission in submissions:
+        print(submission)
+    resp.data = json.dumps({'submissions': submissions})
+    return resp
+
+
 @app.route('/<path:path>')
 def send_js(path='123'):
     return send_from_directory('deploy/js', path)
