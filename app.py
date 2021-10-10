@@ -39,13 +39,9 @@ def render_test(test_id):
         logging.info('not found')
         return default_response_from_dict(data={'status': 'not found'}, code=404)
 
-    questions = []
-
     fields = {k: 1 for k in ['text', 'question_id', 'answers', 'type']}
+    populate_test_questions(test, fields)
 
-    for qid in test['questions']:
-        questions.append(db['questions'].find_one({'_id': qid}, fields))
-    test['questions'] = questions
     return default_response_from_dict(data=test)
 
 
@@ -86,7 +82,6 @@ def get_image(image_id):
 
 
 @app.route('/')
-
 @app.route('/api/submit')
 def get_submission_id():
     sub = mongo()['openmath']['submissions'].insert_one({})
@@ -111,18 +106,26 @@ def opts(test_id):
     return resp
 
 
-@app.route('/api/question/<string:qid>', methods=['GET'])
-def get_question(qid):
+def get_question_mongo(qid: str, fields: dict[str, int] = None):
+    if not fields:
+        args = []
+    else:
+        args = [fields]
     try:
         oid = ObjectId(qid)
-        res = mongo()['openmath']['questions'].find_one({'_id': oid})
+        res = mongo()['openmath']['questions'].find_one({'_id': oid}, *args)
     except bson.errors.InvalidId:
-        res = mongo()['openmath']['questions'].find_one({'question_id': qid})
+        res = mongo()['openmath']['questions'].find_one({'question_id': qid}, *args)
     res['_id'] = str(res['_id'])
-    return default_response_from_dict(res)
+    return res
 
 
-@app.route('/api/sumbission/<string:sid>')
+@app.route('/api/question/<string:qid>', methods=['GET'])
+def get_question(qid):
+    return default_response_from_dict(get_question_mongo(qid))
+
+
+@app.route('/api/submission/<string:sid>')
 def fetch_submission(sid):
     return default_response_from_dict(mongo()['openmath']['submissions'].find_one({'_id': ObjectId(sid)}, {'_id': 0}))
 
@@ -130,22 +133,29 @@ def fetch_submission(sid):
 def process_submission(submission):
     files = []
     for f in submission.get('files', []):
-        files.append(str(f))
+        res = mongo()['openmath']['uploads'].find_one({'_id': f})
+        res['_id'] = str(res['_id'])
+        files.append(res)
     submission['files'] = files
     submission['ts'] = submission['ts'].strftime('%d.%m.%Y %H:%M:%S')
     return submission
 
 
+def populate_test_questions(test, fields: dict[str, int] = None):
+    test['questions'] = [get_question_mongo(qid, fields) for qid in test['questions']]
+
+
 @app.route('/api/submissions/<string:tid>')
 def fetch_submissions_by_test(tid):
     cursor = mongo()['openmath']['submissions'].find({'test_id': tid}, {'_id': 0})
+    test = mongo()['openmath']['tests'].find_one({'test_id': tid}, {'_id': 0})
+    populate_test_questions(test, None)
+    test.pop('submissions')  # ToDo: retrieve from this list
     submissions = [s for s in cursor]
     submissions.sort(key=lambda x: x.get('ts'))
     submissions = [process_submission(s) for s in submissions]
-    resp = make_response()
-    resp.content_type = 'application/json'
-    resp.data = json.dumps({'submissions': submissions})
-    return resp
+    data = {'submissions': submissions, 'test': test}
+    return default_response_from_dict(data)
 
 
 @app.route('/<path:path>')

@@ -27,6 +27,7 @@ services:
     volumes:
       - nginx-logs:/var/log/nginx
       - ./deploy/js:/usr/share/nginx/html
+      - ./uploads:/uploads/uploads
     depends_on:
       - app
     ports:
