@@ -3,27 +3,11 @@ import json
 import logging
 import os
 
+import bson.errors
 from bson import ObjectId
 from flask import Flask, make_response, request, g, send_from_directory
 from flask_cors import CORS
 from pymongo import MongoClient
-
-# dictConfig({
-#     'version': 1,
-#     'formatters': {'qqq': {
-#         'format': '[%(asctime)s] %(levelname)s in %(module)s: %(message)s',
-#     }},
-#     'handlers': {'stderr': {
-#         'class': 'logging.StreamHandler',
-#         'stream': 'ext://flask.logging.wsgi_errors_stream',
-#         # 'stream': 'ext://sys.stdout',
-#         'formatter': 'qqq'
-#     }},
-#     'root': {
-#         'level': 'DEBUG',
-#         'handlers': ['stderr']
-#     }
-# })
 
 app = Flask(__name__)
 
@@ -31,6 +15,14 @@ app = Flask(__name__)
 # app.debug = True
 cors = CORS(app, resources={
     r"/api/*": {"origins": ['http://localhost:8080', 'http://test.humahisation.ru', 'http://localhost:3000']}, })
+
+
+def default_response_from_dict(data: dict, code: int = 200, content_type: str = 'application/json'):
+    resp = make_response()
+    resp.content_type = content_type
+    resp.code = code
+    resp.data = json.dumps(data)
+    return resp
 
 
 @app.route('/api/')
@@ -41,24 +33,20 @@ def hello_world():  # put application's code here
 @app.route('/api/test/<test_id>')
 def render_test(test_id):
     logging.info('Loading test %s', test_id)
-    resp = make_response()
     db = mongo()['openmath']
     test = db['tests'].find_one({'test_id': test_id}, {'_id': 0, 'submissions': 0})
     if not test:
         logging.info('not found')
-        resp.data = json.dumps({'status': 'not_found'})
-        resp.status_code = 404
-        return resp
+        return default_response_from_dict(data={'status': 'not found'}, code=404)
 
     questions = []
+
+    fields = {k: 1 for k in ['text', 'question_id', 'answers', 'type']}
+
     for qid in test['questions']:
-        questions.append(db['questions'].find_one({'_id': qid}, {'_id': 0}))
+        questions.append(db['questions'].find_one({'_id': qid}, fields))
     test['questions'] = questions
-
-    resp.data = json.dumps(test)
-    resp.content_type = 'application/json'
-
-    return resp
+    return default_response_from_dict(data=test)
 
 
 @app.route('/api/upload', methods=['PUT'])
@@ -94,9 +82,10 @@ def get_image(image_id):
     else:
         resp.status_code = 404
         resp.data = ''
-
     return resp
 
+
+@app.route('/')
 
 @app.route('/api/submit')
 def get_submission_id():
@@ -122,12 +111,20 @@ def opts(test_id):
     return resp
 
 
+@app.route('/api/question/<string:qid>', methods=['GET'])
+def get_question(qid):
+    try:
+        oid = ObjectId(qid)
+        res = mongo()['openmath']['questions'].find_one({'_id': oid})
+    except bson.errors.InvalidId:
+        res = mongo()['openmath']['questions'].find_one({'question_id': qid})
+    res['_id'] = str(res['_id'])
+    return default_response_from_dict(res)
+
+
 @app.route('/api/sumbission/<string:sid>')
 def fetch_submission(sid):
-    resp = make_response()
-    resp.content_type = 'application/json'
-    resp.data = json.dumps(mongo()['openmath']['submissions'].find_one({'_id': ObjectId(sid)}, {'_id': 0}))
-    return resp
+    return default_response_from_dict(mongo()['openmath']['submissions'].find_one({'_id': ObjectId(sid)}, {'_id': 0}))
 
 
 def process_submission(submission):
@@ -147,8 +144,6 @@ def fetch_submissions_by_test(tid):
     submissions = [process_submission(s) for s in submissions]
     resp = make_response()
     resp.content_type = 'application/json'
-    for submission in submissions:
-        print(submission)
     resp.data = json.dumps({'submissions': submissions})
     return resp
 
